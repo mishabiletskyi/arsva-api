@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+alembic
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+httpx
+pandas
+openpyxl
+phonenumbers
+tenacity
+azure-storage-blob
+pytest
+pytest-asyncio
