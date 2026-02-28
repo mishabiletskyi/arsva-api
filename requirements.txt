@@ -15,3 +15,5 @@ tenacity
 azure-storage-blob
 pytest
 pytest-asyncio
+pwdlib[argon2]
+PyJWT
