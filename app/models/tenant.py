@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -8,6 +8,19 @@ class Tenant(Base):
     __tablename__ = "tenants"
 
     id = Column(Integer, primary_key=True, index=True)
+
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    property_id = Column(
+        Integer,
+        ForeignKey("properties.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     external_id = Column(String(100), unique=True, nullable=True, index=True)
 
@@ -37,6 +50,9 @@ class Tenant(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    organization = relationship("Organization", back_populates="tenants")
+    property = relationship("Property", back_populates="tenants")
 
     call_logs = relationship(
         "CallLog",

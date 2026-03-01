@@ -9,7 +9,24 @@ class CallLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    property_id = Column(
+        Integer,
+        ForeignKey("properties.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     vapi_call_id = Column(String(255), nullable=True, index=True)
     call_outcome = Column(String(100), nullable=True, index=True)
@@ -25,4 +42,6 @@ class CallLog(Base):
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    organization = relationship("Organization", back_populates="call_logs")
+    property = relationship("Property", back_populates="call_logs")
     tenant = relationship("Tenant", back_populates="call_logs")

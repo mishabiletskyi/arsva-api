@@ -4,16 +4,13 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
-class AdminUser(Base):
-    __tablename__ = "admin_users"
+class Organization(Base):
+    __tablename__ = "organizations"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    full_name = Column(String(255), nullable=True)
-    hashed_password = Column(String(255), nullable=False)
-
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
-    is_superuser = Column(Boolean, nullable=False, default=False, server_default="false")
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -23,14 +20,16 @@ class AdminUser(Base):
         onupdate=func.now(),
     )
 
-    csv_imports = relationship("CsvImport", back_populates="uploaded_by")
+    properties = relationship(
+        "Property",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
     memberships = relationship(
         "AdminUserMembership",
-        back_populates="admin_user",
+        back_populates="organization",
         cascade="all, delete-orphan",
     )
-    property_accesses = relationship(
-        "PropertyUserAccess",
-        back_populates="admin_user",
-        cascade="all, delete-orphan",
-    )
+    tenants = relationship("Tenant", back_populates="organization")
+    call_logs = relationship("CallLog", back_populates="organization")
+    csv_imports = relationship("CsvImport", back_populates="organization")

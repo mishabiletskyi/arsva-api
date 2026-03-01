@@ -9,6 +9,19 @@ class CsvImport(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    property_id = Column(
+        Integer,
+        ForeignKey("properties.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
     original_file_name = Column(String(255), nullable=False)
     stored_file_name = Column(String(255), nullable=True)
 
@@ -34,4 +47,6 @@ class CsvImport(Base):
         onupdate=func.now(),
     )
 
+    organization = relationship("Organization", back_populates="csv_imports")
+    property = relationship("Property", back_populates="csv_imports")
     uploaded_by = relationship("AdminUser", back_populates="csv_imports")
