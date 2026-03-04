@@ -36,10 +36,15 @@ class Tenant(Base):
 
     consent_status = Column(Boolean, nullable=False, default=False, server_default="false")
     consent_timestamp = Column(DateTime(timezone=True), nullable=True)
+    consent_source = Column(String(255), nullable=True)
+    consent_document_version = Column(String(100), nullable=True)
 
     opt_out_flag = Column(Boolean, nullable=False, default=False, server_default="false")
+    opt_out_timestamp = Column(DateTime(timezone=True), nullable=True)
     eviction_status = Column(Boolean, nullable=False, default=False, server_default="false")
     is_suppressed = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_archived = Column(Boolean, nullable=False, default=False, server_default="false")
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     notes = Column(Text, nullable=True)
 

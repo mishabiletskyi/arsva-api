@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -32,6 +32,7 @@ class CsvImport(Base):
     failed_rows = Column(Integer, nullable=False, default=0, server_default="0")
 
     error_message = Column(Text, nullable=True)
+    errors = Column(JSON, nullable=True)
 
     uploaded_by_admin_id = Column(
         Integer,

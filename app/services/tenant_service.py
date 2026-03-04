@@ -1,40 +1,148 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
+from app.models.admin_user import AdminUser
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantUpdate
+from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.property_service import get_property_by_id
 
 
-def get_tenants(db: Session, skip: int = 0, limit: int = 50) -> list[Tenant]:
-    return (
-        db.query(Tenant)
-        .order_by(Tenant.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
+def _can_read_tenant(db: Session, current_user: AdminUser, tenant: Tenant) -> bool:
+    if is_platform_owner(db, current_user):
+        return True
+
+    return can_access_property(
+        db=db,
+        user=current_user,
+        organization_id=tenant.organization_id,
+        property_id=tenant.property_id,
     )
 
 
-def get_tenant_by_id(db: Session, tenant_id: int) -> Tenant | None:
-    return (
-        db.query(Tenant)
-        .filter(Tenant.id == tenant_id)
-        .first()
+def _can_write_tenant(db: Session, current_user: AdminUser, tenant: Tenant) -> bool:
+    if is_platform_owner(db, current_user):
+        return True
+
+    return can_manage_property(
+        db=db,
+        user=current_user,
+        organization_id=tenant.organization_id,
+        property_id=tenant.property_id,
     )
 
 
-def get_tenant_by_external_id(db: Session, external_id: str) -> Tenant | None:
-    return (
-        db.query(Tenant)
-        .filter(Tenant.external_id == external_id)
-        .first()
-    )
+def get_tenants(
+    db: Session,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: AdminUser | None = None,
+    organization_id: int | None = None,
+    property_id: int | None = None,
+    include_archived: bool = False,
+) -> list[Tenant]:
+    query = db.query(Tenant)
+
+    if organization_id is not None:
+        query = query.filter(Tenant.organization_id == organization_id)
+
+    if property_id is not None:
+        query = query.filter(Tenant.property_id == property_id)
+
+    if not include_archived:
+        query = query.filter(Tenant.is_archived.is_(False))
+
+    tenants = query.order_by(Tenant.created_at.desc()).all()
+
+    if current_user is None:
+        return tenants[skip : skip + limit]
+
+    filtered_tenants = [
+        tenant
+        for tenant in tenants
+        if _can_read_tenant(db=db, current_user=current_user, tenant=tenant)
+    ]
+
+    return filtered_tenants[skip : skip + limit]
 
 
-def create_tenant(db: Session, payload: TenantCreate) -> Tenant:
+def get_tenant_by_id(
+    db: Session,
+    tenant_id: int,
+    current_user: AdminUser | None = None,
+    include_archived: bool = False,
+) -> Tenant | None:
+    query = db.query(Tenant).filter(Tenant.id == tenant_id)
+    if not include_archived:
+        query = query.filter(Tenant.is_archived.is_(False))
+
+    tenant = query.first()
+
+    if tenant is None:
+        return None
+
+    if current_user is None:
+        return tenant
+
+    if not _can_read_tenant(db=db, current_user=current_user, tenant=tenant):
+        return None
+
+    return tenant
+
+
+def get_tenant_by_external_id(
+    db: Session,
+    external_id: str,
+    current_user: AdminUser | None = None,
+    include_archived: bool = False,
+) -> Tenant | None:
+    query = db.query(Tenant).filter(Tenant.external_id == external_id)
+    if not include_archived:
+        query = query.filter(Tenant.is_archived.is_(False))
+
+    tenant = query.first()
+
+    if tenant is None:
+        return None
+
+    if current_user is None:
+        return tenant
+
+    if not _can_read_tenant(db=db, current_user=current_user, tenant=tenant):
+        return None
+
+    return tenant
+
+
+def create_tenant(
+    db: Session,
+    payload: TenantCreate,
+    current_user: AdminUser | None = None,
+) -> Tenant:
     if payload.external_id:
-        existing_tenant = get_tenant_by_external_id(db, payload.external_id)
+        existing_tenant = (
+            db.query(Tenant)
+            .filter(Tenant.external_id == payload.external_id)
+            .first()
+        )
         if existing_tenant is not None:
             raise ValueError("Tenant with this external_id already exists")
+
+    property_obj = get_property_by_id(db=db, property_id=payload.property_id)
+    if property_obj is None:
+        raise ValueError("Property not found")
+
+    if property_obj.organization_id != payload.organization_id:
+        raise ValueError("organization_id does not match the selected property")
+
+    if current_user is not None and not can_manage_property(
+        db=db,
+        user=current_user,
+        organization_id=payload.organization_id,
+        property_id=payload.property_id,
+    ):
+        raise PermissionError("You do not have access to create tenants in this property")
 
     tenant = Tenant(**payload.model_dump())
 
@@ -45,18 +153,137 @@ def create_tenant(db: Session, payload: TenantCreate) -> Tenant:
     return tenant
 
 
-def update_tenant(db: Session, tenant: Tenant, payload: TenantUpdate) -> Tenant:
+def update_tenant(
+    db: Session,
+    tenant: Tenant,
+    payload: TenantUpdate,
+    current_user: AdminUser | None = None,
+) -> Tenant:
+    if current_user is not None and not _can_write_tenant(
+        db=db,
+        current_user=current_user,
+        tenant=tenant,
+    ):
+        raise PermissionError("You do not have access to update this tenant")
+
     update_data = payload.model_dump(exclude_unset=True)
 
     new_external_id = update_data.get("external_id")
     if new_external_id:
-        existing_tenant = get_tenant_by_external_id(db, new_external_id)
+        existing_tenant = (
+            db.query(Tenant)
+            .filter(Tenant.external_id == new_external_id)
+            .first()
+        )
         if existing_tenant is not None and existing_tenant.id != tenant.id:
             raise ValueError("Tenant with this external_id already exists")
+
+    if "organization_id" in update_data and "property_id" not in update_data:
+        if update_data["organization_id"] != tenant.organization_id:
+            raise ValueError("organization_id cannot be changed without property_id")
+
+    if "property_id" in update_data:
+        property_obj = get_property_by_id(db=db, property_id=update_data["property_id"])
+        if property_obj is None:
+            raise ValueError("Property not found")
+
+        if "organization_id" in update_data:
+            if update_data["organization_id"] != property_obj.organization_id:
+                raise ValueError("organization_id does not match the selected property")
+
+        update_data["organization_id"] = property_obj.organization_id
+
+        if current_user is not None and not can_manage_property(
+            db=db,
+            user=current_user,
+            organization_id=property_obj.organization_id,
+            property_id=property_obj.id,
+        ):
+            raise PermissionError("You do not have access to move this tenant to the selected property")
 
     for field, value in update_data.items():
         setattr(tenant, field, value)
 
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    return tenant
+
+
+def archive_tenant(
+    db: Session,
+    tenant: Tenant,
+    current_user: AdminUser,
+) -> Tenant:
+    if not _can_write_tenant(db=db, current_user=current_user, tenant=tenant):
+        raise PermissionError("You do not have access to archive this tenant")
+
+    if tenant.is_archived:
+        return tenant
+
+    tenant.is_archived = True
+    tenant.archived_at = datetime.now(timezone.utc)
+
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    return tenant
+
+
+def restore_tenant(
+    db: Session,
+    tenant: Tenant,
+    current_user: AdminUser,
+) -> Tenant:
+    if not _can_write_tenant(db=db, current_user=current_user, tenant=tenant):
+        raise PermissionError("You do not have access to restore this tenant")
+
+    if not tenant.is_archived:
+        return tenant
+
+    tenant.is_archived = False
+    tenant.archived_at = None
+
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    return tenant
+
+
+def suppress_tenant(
+    db: Session,
+    tenant: Tenant,
+    current_user: AdminUser,
+) -> Tenant:
+    if not _can_write_tenant(db=db, current_user=current_user, tenant=tenant):
+        raise PermissionError("You do not have access to suppress this tenant")
+
+    if tenant.is_suppressed:
+        return tenant
+
+    tenant.is_suppressed = True
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    return tenant
+
+
+def unsuppress_tenant(
+    db: Session,
+    tenant: Tenant,
+    current_user: AdminUser,
+) -> Tenant:
+    if not _can_write_tenant(db=db, current_user=current_user, tenant=tenant):
+        raise PermissionError("You do not have access to unsuppress this tenant")
+
+    if not tenant.is_suppressed:
+        return tenant
+
+    tenant.is_suppressed = False
     db.add(tenant)
     db.commit()
     db.refresh(tenant)

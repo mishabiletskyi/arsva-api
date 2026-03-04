@@ -30,6 +30,7 @@ class CallLog(Base):
 
     vapi_call_id = Column(String(255), nullable=True, index=True)
     call_outcome = Column(String(100), nullable=True, index=True)
+    script_version = Column(String(100), nullable=True)
 
     transcript = Column(Text, nullable=True)
     recording_url = Column(Text, nullable=True)

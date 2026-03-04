@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     azure_blob_container_uploads: str = "uploads"
     azure_blob_container_exports: str = "exports"
     azure_blob_container_recordings: str = "call-recordings"
+    vapi_private_api_key: str = ""
+    vapi_api_base_url: str = "https://api.vapi.ai"
+    vapi_default_assistant_id: str = ""
+    vapi_phone_number_id: str = ""
+    vapi_webhook_secret: str = ""
+    current_script_version: str = "rent-status-v1"
+    pilot_min_days_late: int = 3
+    pilot_max_days_late: int = 10
+    pilot_max_batch_size: int = 50
 
     jwt_secret_key: str = "change_me_super_secret_key"
     jwt_algorithm: str = "HS256"
@@ -39,6 +48,17 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, value):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "prod", "production", "false", "0", "no"}:
+                return False
+            if normalized in {"dev", "development", "true", "1", "yes"}:
+                return True
         return value
 
     @property
