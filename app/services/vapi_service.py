@@ -8,6 +8,12 @@ class VapiDispatchError(Exception):
     pass
 
 
+def _resolve_rent_month(tenant: Tenant) -> str:
+    if tenant.rent_due_date is not None:
+        return tenant.rent_due_date.strftime("%B")
+    return "this month"
+
+
 def create_outbound_call(
     tenant: Tenant,
     *,
@@ -32,6 +38,9 @@ def create_outbound_call(
                 "phone_number": tenant.phone_number,
                 "organization_id": tenant.organization_id,
                 "property_id": tenant.property_id,
+                "first_name": tenant.first_name,
+                "property_name": tenant.property_name,
+                "rent_month": _resolve_rent_month(tenant),
             }
         },
     }
