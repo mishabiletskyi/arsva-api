@@ -9,6 +9,12 @@ from app.models.call_log import CallLog
 from app.models.tenant import Tenant
 from app.schemas.call_log import CallLogCreate, CallLogUpdate
 from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.sms_service import SmsDispatchError, send_payment_follow_up_sms
+from app.services.storage_service import (
+    StorageServiceError,
+    build_recording_blob_name,
+    mirror_remote_file_to_blob,
+)
 
 
 def _parse_expected_payment_date(value: str | None) -> date | None:
@@ -31,11 +37,148 @@ def _coerce_duration_seconds(value) -> int | None:
     return None
 
 
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return False
+
+
 def _get_first_value(*values):
     for value in values:
         if value is not None and value != "":
             return value
     return None
+
+
+def _normalize_call_outcome(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        value = str(value)
+
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or None
+
+
+def _should_send_follow_up_sms(
+    *,
+    call_outcome: str | None,
+    structured_data: dict,
+) -> bool:
+    settings = get_settings()
+
+    if not settings.sms_after_call_enabled:
+        return False
+
+    explicit_signal = _get_first_value(
+        structured_data.get("send_payment_link_sms"),
+        structured_data.get("send_payment_link"),
+        structured_data.get("needs_payment_link"),
+    )
+    if explicit_signal is not None:
+        return _coerce_bool(explicit_signal)
+
+    normalized_outcome = _normalize_call_outcome(call_outcome)
+    return normalized_outcome in {_normalize_call_outcome(item) for item in settings.sms_send_outcomes}
+
+
+def _attach_follow_up_sms_result(
+    *,
+    call_log: CallLog,
+    tenant: Tenant,
+    expected_payment_date: date | None,
+    call_outcome: str | None,
+    structured_data: dict,
+    opt_out_detected: bool,
+) -> None:
+    settings = get_settings()
+
+    if not settings.sms_after_call_enabled:
+        call_log.sms_sent = False
+        call_log.sms_status = "disabled"
+        call_log.sms_message_sid = None
+        call_log.sms_error_message = None
+        call_log.sms_sent_at = None
+        return
+
+    if tenant.opt_out_flag or opt_out_detected:
+        call_log.sms_sent = False
+        call_log.sms_status = "blocked_opt_out"
+        call_log.sms_message_sid = None
+        call_log.sms_error_message = "SMS blocked: tenant opted out"
+        call_log.sms_sent_at = None
+        return
+
+    should_send_sms = _should_send_follow_up_sms(
+        call_outcome=call_outcome,
+        structured_data=structured_data,
+    )
+    if not should_send_sms:
+        call_log.sms_sent = False
+        call_log.sms_status = "not_applicable"
+        call_log.sms_message_sid = None
+        call_log.sms_error_message = None
+        call_log.sms_sent_at = None
+        return
+
+    # Avoid duplicate sends when webhook retries for the same VAPI call.
+    if call_log.sms_message_sid:
+        return
+
+    try:
+        sms_result = send_payment_follow_up_sms(
+            tenant=tenant,
+            expected_payment_date=expected_payment_date,
+        )
+        call_log.sms_sent = True
+        call_log.sms_status = str(_get_first_value(sms_result.get("status"), "queued"))
+        call_log.sms_message_sid = _get_first_value(sms_result.get("sid"), sms_result.get("message_sid"))
+        call_log.sms_error_message = None
+        call_log.sms_sent_at = datetime.now(timezone.utc)
+    except SmsDispatchError as exc:
+        call_log.sms_sent = False
+        call_log.sms_status = "failed"
+        call_log.sms_message_sid = None
+        call_log.sms_error_message = str(exc)
+        call_log.sms_sent_at = None
+
+
+def _archive_recording_to_blob(call_log: CallLog, tenant: Tenant) -> None:
+    settings = get_settings()
+    recording_url = call_log.recording_url
+    if not recording_url:
+        return
+
+    if not settings.azure_blob_connection_string:
+        return
+
+    # Already mirrored to Azure Blob storage.
+    if ".blob.core.windows.net/" in recording_url:
+        return
+
+    blob_name = build_recording_blob_name(
+        organization_id=tenant.organization_id,
+        property_id=tenant.property_id,
+        tenant_id=tenant.id,
+        vapi_call_id=call_log.vapi_call_id,
+        source_url=recording_url,
+    )
+
+    try:
+        mirrored_url = mirror_remote_file_to_blob(
+            container_name=settings.azure_blob_container_recordings,
+            blob_name=blob_name,
+            source_url=recording_url,
+        )
+        call_log.recording_url = mirrored_url
+    except StorageServiceError:
+        # Best effort only: keep original provider URL when Blob mirror fails.
+        pass
 
 
 def _resolve_tenant_for_vapi_payload(db: Session, payload: dict) -> Tenant | None:
@@ -336,6 +479,7 @@ def create_or_update_call_log_from_vapi_payload(
         raise ValueError("VAPI callback is missing call ID")
 
     expected_payment_date_raw = _get_first_value(
+        structured_data.get("expected_payment_date"),
         payload.get("expected_payment_date"),
         analysis.get("expected_payment_date"),
     )
@@ -373,18 +517,20 @@ def create_or_update_call_log_from_vapi_payload(
     if call_log is None:
         call_log = CallLog()
 
+    call_outcome = _get_first_value(
+        structured_data.get("call_outcome"),
+        payload.get("call_outcome"),
+        payload.get("status"),
+        analysis.get("summary"),
+        analysis.get("outcome"),
+        call_data.get("status"),
+    )
+
     _apply_call_log_values(
         call_log,
         tenant,
         vapi_call_id=str(vapi_call_id),
-        call_outcome=_get_first_value(
-            structured_data.get("call_outcome"),
-            payload.get("call_outcome"),
-            payload.get("status"),
-            analysis.get("summary"),
-            analysis.get("outcome"),
-            call_data.get("status"),
-        ),
+        call_outcome=call_outcome,
         script_version=_get_first_value(
             structured_data.get("script_version"),
             payload.get("script_version"),
@@ -405,11 +551,21 @@ def create_or_update_call_log_from_vapi_payload(
         duration_seconds=duration_seconds,
         raw_payload=json.dumps(payload, ensure_ascii=False),
     )
+    _archive_recording_to_blob(call_log=call_log, tenant=tenant)
 
     if opt_out_detected:
         tenant.opt_out_flag = True
         tenant.opt_out_timestamp = datetime.now(timezone.utc)
         db.add(tenant)
+
+    _attach_follow_up_sms_result(
+        call_log=call_log,
+        tenant=tenant,
+        expected_payment_date=expected_payment_date,
+        call_outcome=call_outcome,
+        structured_data=structured_data,
+        opt_out_detected=opt_out_detected,
+    )
 
     db.add(call_log)
     db.commit()

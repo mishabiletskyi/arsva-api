@@ -7,12 +7,6 @@ from app.core.config import get_settings
 from app.models.call_log import CallLog
 from app.models.tenant import Tenant
 
-CALL_WINDOW_START_HOUR = 8
-CALL_WINDOW_END_HOUR = 21
-MAX_CALLS_7_DAYS = 2
-MAX_CALLS_30_DAYS = 4
-MIN_HOURS_BETWEEN_CALLS = 72
-
 
 def _resolve_tenant_timezone(tenant: Tenant) -> ZoneInfo | None:
     timezone_name = tenant.timezone or "America/New_York"
@@ -63,7 +57,7 @@ def evaluate_tenant_eligibility(db: Session, tenant: Tenant) -> dict:
     if timezone_info is not None:
         local_now = now_utc.astimezone(timezone_info)
         outside_call_window = not (
-            CALL_WINDOW_START_HOUR <= local_now.hour < CALL_WINDOW_END_HOUR
+            settings.call_window_start_hour <= local_now.hour < settings.call_window_end_hour
         )
 
     if outside_call_window:
@@ -77,24 +71,25 @@ def evaluate_tenant_eligibility(db: Session, tenant: Tenant) -> dict:
     )
     seven_day_window_start = now_utc - timedelta(days=7)
     thirty_day_window_start = now_utc - timedelta(days=30)
-    minimum_gap_start = now_utc - timedelta(hours=MIN_HOURS_BETWEEN_CALLS)
+    minimum_gap_start = now_utc - timedelta(hours=settings.min_hours_between_calls)
 
     recent_calls_7_days = [log for log in call_logs if log.created_at >= seven_day_window_start]
     recent_calls_30_days = [log for log in call_logs if log.created_at >= thirty_day_window_start]
     recent_calls_min_gap = [log for log in call_logs if log.created_at >= minimum_gap_start]
 
     call_frequency_limited = False
-    if len(recent_calls_7_days) >= MAX_CALLS_7_DAYS:
+    if len(recent_calls_7_days) >= settings.max_calls_7_days:
         call_frequency_limited = True
         blocked_reasons.append("call_frequency_limit_7d")
 
-    if len(recent_calls_30_days) >= MAX_CALLS_30_DAYS:
+    if len(recent_calls_30_days) >= settings.max_calls_30_days:
         call_frequency_limited = True
         blocked_reasons.append("call_frequency_limit_30d")
 
     if recent_calls_min_gap:
         call_frequency_limited = True
-        blocked_reasons.append("minimum_gap_72h")
+        minimum_gap_minutes = max(1, int(round(settings.min_hours_between_calls * 60)))
+        blocked_reasons.append(f"minimum_gap_{minimum_gap_minutes}m")
 
     can_call_now = not blocked_reasons
 

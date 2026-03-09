@@ -4,11 +4,17 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.admin_user import AdminUser
 from app.models.csv_import import CsvImport
 from app.models.property import Property
 from app.models.tenant import Tenant
 from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.storage_service import (
+    StorageServiceError,
+    build_import_blob_name,
+    upload_bytes_to_blob,
+)
 
 
 def _extract_error_field(message: str) -> str | None:
@@ -142,6 +148,7 @@ def create_csv_import_from_upload(
     original_file_name: str,
     file_bytes: bytes,
 ) -> CsvImport:
+    settings = get_settings()
     property_obj = (
         db.query(Property)
         .filter(Property.id == property_id)
@@ -161,11 +168,26 @@ def create_csv_import_from_upload(
     ):
         raise PermissionError("You do not have access to import tenants into this property")
 
+    stored_file_name = build_import_blob_name(
+        organization_id=organization_id,
+        property_id=property_id,
+        original_file_name=original_file_name,
+    )
+    try:
+        upload_bytes_to_blob(
+            container_name=settings.azure_blob_container_uploads,
+            blob_name=stored_file_name,
+            data=file_bytes,
+            content_type="text/csv",
+        )
+    except StorageServiceError as exc:
+        raise ValueError(f"Failed to store CSV file in Azure Blob: {exc}") from exc
+
     csv_import = CsvImport(
         organization_id=organization_id,
         property_id=property_id,
         original_file_name=original_file_name,
-        stored_file_name=None,
+        stored_file_name=stored_file_name,
         status="processing",
         total_rows=0,
         imported_rows=0,

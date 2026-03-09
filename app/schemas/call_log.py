@@ -35,6 +35,11 @@ class CallLogResponse(CallLogBase):
     id: int
     organization_id: int
     property_id: int
+    sms_sent: bool = False
+    sms_status: str | None = None
+    sms_message_sid: str | None = None
+    sms_error_message: str | None = None
+    sms_sent_at: datetime | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

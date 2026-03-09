@@ -28,7 +28,22 @@ class Settings(BaseSettings):
     vapi_default_assistant_id: str = ""
     vapi_phone_number_id: str = ""
     vapi_webhook_secret: str = ""
+
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_phone_number: str = ""
+    twilio_api_base_url: str = "https://api.twilio.com/2010-04-01"
+
+    sms_after_call_enabled: bool = True
+    sms_send_outcomes: List[str] = ["paying_soon", "need_assistance", "needs_assistance"]
+    payment_portal_url: str = ""
+
     current_script_version: str = "rent-status-v1"
+    call_window_start_hour: int = 8
+    call_window_end_hour: int = 21
+    max_calls_7_days: int = 2
+    max_calls_30_days: int = 4
+    min_hours_between_calls: float = 72
     pilot_min_days_late: int = 3
     pilot_max_days_late: int = 10
     pilot_max_batch_size: int = 50
@@ -59,6 +74,13 @@ class Settings(BaseSettings):
                 return False
             if normalized in {"dev", "development", "true", "1", "yes"}:
                 return True
+        return value
+
+    @field_validator("sms_send_outcomes", mode="before")
+    @classmethod
+    def parse_sms_send_outcomes(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
     @property

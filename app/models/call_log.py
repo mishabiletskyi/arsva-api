@@ -40,6 +40,11 @@ class CallLog(Base):
 
     duration_seconds = Column(Integer, nullable=True)
     raw_payload = Column(Text, nullable=True)
+    sms_sent = Column(Boolean, nullable=False, default=False, server_default="false")
+    sms_status = Column(String(100), nullable=True)
+    sms_message_sid = Column(String(255), nullable=True, index=True)
+    sms_error_message = Column(Text, nullable=True)
+    sms_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

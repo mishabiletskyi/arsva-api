@@ -4,12 +4,17 @@ from datetime import date, datetime, time, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.admin_user import AdminUser
 from app.models.call_log import CallLog
 from app.models.csv_import import CsvImport
 from app.models.dashboard_task import DashboardTask
 from app.models.tenant import Tenant
 from app.services.access_service import can_access_property, is_platform_owner
+from app.services.storage_service import (
+    build_report_blob_name,
+    upload_bytes_to_blob,
+)
 
 
 def _normalize_date_range(
@@ -52,6 +57,28 @@ def _build_csv(columns: list[str], rows: list[dict]) -> str:
     for row in rows:
         writer.writerow(row)
     return buffer.getvalue()
+
+
+def store_report_export_csv(
+    *,
+    report_file_name: str,
+    content: str,
+    organization_id: int | None,
+    property_id: int | None,
+) -> str:
+    settings = get_settings()
+    blob_name = build_report_blob_name(
+        report_name=report_file_name,
+        organization_id=organization_id,
+        property_id=property_id,
+    )
+    upload_bytes_to_blob(
+        container_name=settings.azure_blob_container_exports,
+        blob_name=blob_name,
+        data=content.encode("utf-8"),
+        content_type="text/csv",
+    )
+    return blob_name
 
 
 def export_tenants_csv(
@@ -138,6 +165,10 @@ def export_call_logs_csv(
             "opt_out_detected": item.opt_out_detected,
             "expected_payment_date": item.expected_payment_date.isoformat() if item.expected_payment_date else None,
             "duration_seconds": item.duration_seconds,
+            "sms_sent": item.sms_sent,
+            "sms_status": item.sms_status,
+            "sms_message_sid": item.sms_message_sid,
+            "sms_sent_at": item.sms_sent_at.isoformat() if item.sms_sent_at else None,
             "created_at": item.created_at.isoformat(),
         }
         for item in call_logs
@@ -152,6 +183,10 @@ def export_call_logs_csv(
         "opt_out_detected",
         "expected_payment_date",
         "duration_seconds",
+        "sms_sent",
+        "sms_status",
+        "sms_message_sid",
+        "sms_sent_at",
         "created_at",
     ], rows)
 
