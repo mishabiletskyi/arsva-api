@@ -48,6 +48,7 @@ class Property(Base):
     tenants = relationship("Tenant", back_populates="property")
     call_logs = relationship("CallLog", back_populates="property")
     csv_imports = relationship("CsvImport", back_populates="property")
+    call_policies = relationship("CallPolicy", back_populates="property")
     user_access = relationship(
         "PropertyUserAccess",
         back_populates="property",

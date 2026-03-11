@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     payment_portal_url: str = ""
 
     current_script_version: str = "rent-status-v1"
+    # Deprecated: dynamic call policy now comes from DB (call_policies table).
     call_window_start_hour: int = 8
     call_window_end_hour: int = 21
     max_calls_7_days: int = 2
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = "change_me_super_secret_key"
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 60
+    jwt_access_token_expire_minutes: int = 180
 
     model_config = SettingsConfigDict(
         env_file=".env",

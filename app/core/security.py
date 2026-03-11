@@ -21,12 +21,15 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_minutes or settings.jwt_access_token_expire_minutes
-    )
+    default_ttl_minutes = max(180, settings.jwt_access_token_expire_minutes)
+    ttl_minutes = expires_minutes or default_ttl_minutes
+
+    issued_at = datetime.now(timezone.utc)
+    expire = issued_at + timedelta(minutes=ttl_minutes)
 
     payload: dict[str, Any] = {
         "sub": subject,
+        "iat": issued_at,
         "exp": expire,
     }
 

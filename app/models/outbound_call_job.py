@@ -50,6 +50,7 @@ class OutboundCallJob(Base):
     eligible_count = Column(Integer, nullable=False, default=0, server_default="0")
     blocked_count = Column(Integer, nullable=False, default=0, server_default="0")
     filters = Column(JSON, nullable=True)
+    policy_snapshot = Column(JSON, nullable=True)
     result_summary = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

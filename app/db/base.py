@@ -2,6 +2,7 @@ from app.core.database import Base
 from app.models.admin_user import AdminUser
 from app.models.admin_user_membership import AdminUserMembership
 from app.models.call_log import CallLog
+from app.models.call_policy import CallPolicy
 from app.models.csv_import import CsvImport
 from app.models.dashboard_task import DashboardTask
 from app.models.organization import Organization
@@ -15,6 +16,7 @@ __all__ = [
     "AdminUser",
     "AdminUserMembership",
     "CallLog",
+    "CallPolicy",
     "CsvImport",
     "DashboardTask",
     "Organization",

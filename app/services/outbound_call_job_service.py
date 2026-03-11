@@ -5,6 +5,7 @@ from app.models.admin_user import AdminUser
 from app.models.outbound_call_job import OutboundCallJob
 from app.models.tenant import Tenant
 from app.schemas.outbound_call_job import OutboundCallJobCreate
+from app.services.call_policy_service import build_policy_snapshot, get_effective_call_policy_map
 from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
 from app.services.compliance_service import evaluate_tenant_eligibility
 from app.services.vapi_service import VapiDispatchError, create_outbound_call
@@ -112,8 +113,15 @@ def create_outbound_call_job(
     effective_limit = min(effective_limit, settings.pilot_max_batch_size)
     manageable_tenants = manageable_tenants[:effective_limit]
 
+    scopes = {(tenant.organization_id, tenant.property_id) for tenant in manageable_tenants}
+    policy_map = get_effective_call_policy_map(db=db, scopes=scopes)
+
     eligibility_results = [
-        evaluate_tenant_eligibility(db, tenant)
+        evaluate_tenant_eligibility(
+            db=db,
+            tenant=tenant,
+            policy=policy_map[(tenant.organization_id, tenant.property_id)],
+        )
         for tenant in manageable_tenants
     ]
     eligible_results = [item for item in eligibility_results if item["can_call_now"]]
@@ -185,6 +193,9 @@ def create_outbound_call_job(
             "max_tenants": payload.max_tenants,
             "effective_max_tenants": effective_limit,
         },
+        policy_snapshot=build_policy_snapshot(
+            [policy_map[scope] for scope in sorted(scopes, key=lambda item: (item[0], item[1]))]
+        ),
         result_summary={
             "eligible_tenant_ids": [item["tenant_id"] for item in eligible_results],
             "blocked": [

@@ -27,6 +27,7 @@ class OutboundCallJobResponse(BaseModel):
     eligible_count: int
     blocked_count: int
     filters: dict[str, Any] | None = None
+    policy_snapshot: dict[str, Any] | None = None
     result_summary: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime

@@ -33,3 +33,4 @@ class Organization(Base):
     tenants = relationship("Tenant", back_populates="organization")
     call_logs = relationship("CallLog", back_populates="organization")
     csv_imports = relationship("CsvImport", back_populates="organization")
+    call_policies = relationship("CallPolicy", back_populates="organization")
