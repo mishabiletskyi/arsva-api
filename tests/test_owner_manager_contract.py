@@ -16,7 +16,9 @@ def test_auth_me_includes_role_ui_and_scope_for_manager(client, set_current_user
     assert payload["role_ui"] == "manager"
     assert payload["current_organization"]["id"] == property_1.organization_id
     assert payload["available_properties"][0]["id"] == property_1.id
+    assert payload["available_properties"][0]["organization_id"] == property_1.organization_id
     assert payload["available_properties"][0]["timezone"] == property_1.timezone
+    assert "updated_at" in payload["available_properties"][0]
     assert payload["current_property_id"] == property_1.id
 
 

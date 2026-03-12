@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,7 @@ class ManagerRegisterRequest(BaseModel):
     full_name: str | None = None
     organization_id: int | None = None
     organization_slug: str | None = None
+    organization_name: str | None = None
     signup_code: str | None = None
 
 
@@ -37,8 +40,15 @@ class CurrentOrganizationResponse(BaseModel):
 
 class AvailablePropertyResponse(BaseModel):
     id: int
+    organization_id: int
     name: str
     timezone: str
+    address_line: str | None = None
+    city: str | None = None
+    state: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class UserMeResponse(BaseModel):

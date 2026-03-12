@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.organization import Organization
+from app.models.property import Property
 from app.schemas.auth import (
     AvailablePropertyResponse,
     CurrentOrganizationResponse,
@@ -49,6 +52,49 @@ def _resolve_role_ui(
     return "manager"
 
 
+def _slugify_organization_name(name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    if not normalized:
+        raise ValueError("organization_name must contain letters or numbers")
+    return normalized
+
+
+def _ensure_organization_by_name(db: Session, organization_name: str) -> Organization:
+    base_slug = _slugify_organization_name(organization_name)
+    existing = (
+        db.query(Organization)
+        .filter(Organization.slug == base_slug, Organization.is_active.is_(True))
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    slug = base_slug
+    index = 2
+    while db.query(Organization).filter(Organization.slug == slug).first() is not None:
+        slug = f"{base_slug}-{index}"
+        index += 1
+
+    organization = Organization(
+        name=organization_name.strip(),
+        slug=slug,
+        is_active=True,
+    )
+    db.add(organization)
+    db.flush()
+
+    default_property = Property(
+        organization_id=organization.id,
+        name="Default Property",
+        timezone="America/New_York",
+        is_active=True,
+    )
+    db.add(default_property)
+    db.commit()
+    db.refresh(organization)
+    return organization
+
+
 @router.post("/login", response_model=TokenResponse, summary="Login admin user")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_admin(db, payload.email, payload.password)
@@ -70,7 +116,13 @@ def register_manager(payload: ManagerRegisterRequest, db: Session = Depends(get_
             detail="Manager self-signup is disabled",
         )
 
-    if settings.manager_signup_code and payload.signup_code != settings.manager_signup_code:
+    if not settings.manager_signup_code:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manager self-signup is not configured",
+        )
+
+    if payload.signup_code != settings.manager_signup_code:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid signup code",
@@ -83,24 +135,35 @@ def register_manager(payload: ManagerRegisterRequest, db: Session = Depends(get_
             .filter(Organization.id == payload.organization_id, Organization.is_active.is_(True))
             .first()
         )
+        if organization is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found",
+            )
     elif payload.organization_slug:
         organization = (
             db.query(Organization)
             .filter(Organization.slug == payload.organization_slug.strip(), Organization.is_active.is_(True))
             .first()
         )
-    else:
-        organization = (
-            db.query(Organization)
-            .filter(Organization.is_active.is_(True))
-            .order_by(Organization.id.asc())
-            .first()
-        )
+        if organization is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found",
+            )
+    elif payload.organization_name:
+        try:
+            organization = _ensure_organization_by_name(db, payload.organization_name)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            )
 
     if organization is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization not found",
+            detail="Provide organization_id, organization_slug, or organization_name",
         )
 
     try:
@@ -154,8 +217,15 @@ def me(
             available_properties = [
                 AvailablePropertyResponse(
                     id=item.id,
+                    organization_id=item.organization_id,
                     name=item.name,
                     timezone=item.timezone,
+                    address_line=item.address_line,
+                    city=item.city,
+                    state=item.state,
+                    is_active=item.is_active,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
                 )
                 for item in available_property_rows
             ]
