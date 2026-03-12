@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
 
+from app.models.admin_user_membership import AdminUserMembership
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.admin_user import AdminUser
+from app.models.organization import Organization
 
 
 def get_admin_by_email(db: Session, email: str) -> AdminUser | None:
@@ -69,3 +71,48 @@ def build_token_response(user: AdminUser) -> dict:
         "access_token": access_token,
         "token_type": "bearer",
     }
+
+
+def register_manager_user(
+    db: Session,
+    *,
+    email: str,
+    password: str,
+    full_name: str | None,
+    organization_id: int,
+) -> AdminUser:
+    normalized_email = email.strip().lower()
+
+    existing_user = get_admin_by_email(db, normalized_email)
+    if existing_user is not None:
+        raise ValueError("Admin user with this email already exists")
+
+    organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization_id, Organization.is_active.is_(True))
+        .first()
+    )
+    if organization is None:
+        raise ValueError("Organization not found")
+
+    user = AdminUser(
+        email=normalized_email,
+        full_name=full_name.strip() if full_name else None,
+        hashed_password=get_password_hash(password),
+        is_active=True,
+        is_superuser=False,
+    )
+    db.add(user)
+    db.flush()
+
+    membership = AdminUserMembership(
+        admin_user_id=user.id,
+        organization_id=organization.id,
+        role="org_admin",
+        is_active=True,
+    )
+    db.add(membership)
+    db.commit()
+    db.refresh(user)
+
+    return user

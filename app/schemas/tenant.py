@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 class TenantBase(BaseModel):
     external_id: str | None = None
-    organization_id: int
+    organization_id: int | None = None
     property_id: int
     first_name: str
     last_name: str | None = None

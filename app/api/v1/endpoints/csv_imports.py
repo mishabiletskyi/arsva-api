@@ -23,14 +23,25 @@ def list_csv_imports(
     db: Session = Depends(get_db),
     current_user: AdminUser = Depends(get_current_user),
 ):
-    return get_csv_imports(
-        db=db,
-        current_user=current_user,
-        skip=skip,
-        limit=limit,
-        organization_id=organization_id,
-        property_id=property_id,
-    )
+    try:
+        return get_csv_imports(
+            db=db,
+            current_user=current_user,
+            skip=skip,
+            limit=limit,
+            organization_id=organization_id,
+            property_id=property_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
 
 @router.get("/{csv_import_id}", response_model=CsvImportResponse, summary="Get CSV import by ID")
@@ -61,7 +72,7 @@ def get_csv_import(
     summary="Upload CSV and import tenants",
 )
 async def upload_csv_import(
-    organization_id: int = Form(...),
+    organization_id: int | None = Form(default=None),
     property_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),

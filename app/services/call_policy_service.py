@@ -146,6 +146,9 @@ def upsert_call_policy(
     db: Session,
     payload: CallPolicyUpdateRequest,
 ) -> CallPolicy:
+    if payload.organization_id is None:
+        raise ValueError("organization_id is required for call policy upsert")
+
     policy = get_call_policy_by_scope(
         db=db,
         organization_id=payload.organization_id,

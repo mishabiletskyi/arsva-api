@@ -8,7 +8,13 @@ from app.models.admin_user import AdminUser
 from app.models.call_log import CallLog
 from app.models.tenant import Tenant
 from app.schemas.call_log import CallLogCreate, CallLogUpdate
-from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.access_service import (
+    can_access_property,
+    can_manage_property,
+    get_property_in_scope,
+    is_platform_owner,
+    resolve_organization_scope,
+)
 from app.services.sms_service import SmsDispatchError, send_payment_follow_up_sms
 from app.services.storage_service import (
     StorageServiceError,
@@ -325,10 +331,26 @@ def get_call_logs(
     property_id: int | None = None,
     tenant_id: int | None = None,
 ) -> list[CallLog]:
+    effective_organization_id = resolve_organization_scope(
+        db=db,
+        user=current_user,
+        organization_id=organization_id,
+    )
+
+    if property_id is not None:
+        scoped_property = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=property_id,
+            organization_id=None,
+            require_manage=False,
+        )
+        effective_organization_id = scoped_property.organization_id
+
     query = db.query(CallLog)
 
-    if organization_id is not None:
-        query = query.filter(CallLog.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(CallLog.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(CallLog.property_id == property_id)
     if tenant_id is not None:

@@ -21,12 +21,17 @@ def list_outbound_call_jobs(
     db: Session = Depends(get_db),
     current_user: AdminUser = Depends(get_current_user),
 ):
-    return get_outbound_call_jobs(
-        db=db,
-        current_user=current_user,
-        organization_id=organization_id,
-        property_id=property_id,
-    )
+    try:
+        return get_outbound_call_jobs(
+            db=db,
+            current_user=current_user,
+            organization_id=organization_id,
+            property_id=property_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/{job_id}", response_model=OutboundCallJobResponse, summary="Get outbound call job by ID")

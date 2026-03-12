@@ -10,7 +10,12 @@ from app.models.call_log import CallLog
 from app.models.csv_import import CsvImport
 from app.models.dashboard_task import DashboardTask
 from app.models.tenant import Tenant
-from app.services.access_service import can_access_property, is_platform_owner
+from app.services.access_service import (
+    can_access_property,
+    get_property_in_scope,
+    is_platform_owner,
+    resolve_organization_scope,
+)
 from app.services.storage_service import (
     build_report_blob_name,
     upload_bytes_to_blob,
@@ -59,6 +64,31 @@ def _build_csv(columns: list[str], rows: list[dict]) -> str:
     return buffer.getvalue()
 
 
+def _resolve_report_scope(
+    db: Session,
+    current_user: AdminUser,
+    organization_id: int | None,
+    property_id: int | None,
+) -> tuple[int | None, int | None]:
+    effective_organization_id = resolve_organization_scope(
+        db=db,
+        user=current_user,
+        organization_id=organization_id,
+    )
+
+    if property_id is not None:
+        property_obj = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=property_id,
+            organization_id=None,
+            require_manage=False,
+        )
+        effective_organization_id = property_obj.organization_id
+
+    return effective_organization_id, property_id
+
+
 def store_report_export_csv(
     *,
     report_file_name: str,
@@ -89,10 +119,16 @@ def export_tenants_csv(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> str:
+    effective_organization_id, property_id = _resolve_report_scope(
+        db=db,
+        current_user=current_user,
+        organization_id=organization_id,
+        property_id=property_id,
+    )
     start, end = _normalize_date_range(date_from, date_to)
     query = db.query(Tenant)
-    if organization_id is not None:
-        query = query.filter(Tenant.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(Tenant.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(Tenant.property_id == property_id)
     if start is not None:
@@ -142,10 +178,16 @@ def export_call_logs_csv(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> str:
+    effective_organization_id, property_id = _resolve_report_scope(
+        db=db,
+        current_user=current_user,
+        organization_id=organization_id,
+        property_id=property_id,
+    )
     start, end = _normalize_date_range(date_from, date_to)
     query = db.query(CallLog)
-    if organization_id is not None:
-        query = query.filter(CallLog.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(CallLog.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(CallLog.property_id == property_id)
     if start is not None:
@@ -199,10 +241,16 @@ def export_csv_imports_csv(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> str:
+    effective_organization_id, property_id = _resolve_report_scope(
+        db=db,
+        current_user=current_user,
+        organization_id=organization_id,
+        property_id=property_id,
+    )
     start, end = _normalize_date_range(date_from, date_to)
     query = db.query(CsvImport)
-    if organization_id is not None:
-        query = query.filter(CsvImport.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(CsvImport.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(CsvImport.property_id == property_id)
     if start is not None:
@@ -246,10 +294,16 @@ def export_dashboard_tasks_csv(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> str:
+    effective_organization_id, property_id = _resolve_report_scope(
+        db=db,
+        current_user=current_user,
+        organization_id=organization_id,
+        property_id=property_id,
+    )
     start, end = _normalize_date_range(date_from, date_to)
     query = db.query(DashboardTask)
-    if organization_id is not None:
-        query = query.filter(DashboardTask.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(DashboardTask.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(DashboardTask.property_id == property_id)
     if start is not None:

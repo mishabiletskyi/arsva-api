@@ -2,23 +2,51 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps.auth import get_current_user
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
+from app.models.organization import Organization
 from app.schemas.auth import (
+    AvailablePropertyResponse,
+    CurrentOrganizationResponse,
     LoginRequest,
+    ManagerRegisterRequest,
     MembershipScopeResponse,
     PropertyAccessScopeResponse,
     TokenResponse,
     UserMeResponse,
 )
 from app.services.access_service import (
+    ROLE_ORG_ADMIN,
+    ROLE_PROPERTY_MANAGER,
+    ROLE_VIEWER,
+    get_accessible_properties_for_organization,
+    get_default_organization_id,
     get_active_memberships,
     get_active_property_accesses,
     is_platform_owner,
 )
-from app.services.auth_service import authenticate_admin, build_token_response
+from app.services.auth_service import authenticate_admin, build_token_response, register_manager_user
 
 router = APIRouter(prefix="/auth")
+settings = get_settings()
+
+
+def _resolve_role_ui(
+    *,
+    is_owner: bool,
+    memberships: list,
+) -> str:
+    if is_owner:
+        return "owner"
+
+    roles = {item.role for item in memberships if item.is_active}
+    if roles.intersection({ROLE_ORG_ADMIN, ROLE_PROPERTY_MANAGER}):
+        return "manager"
+    if ROLE_VIEWER in roles:
+        return "viewer"
+
+    return "manager"
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login admin user")
@@ -34,6 +62,64 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     return build_token_response(user)
 
 
+@router.post("/register-manager", response_model=TokenResponse, summary="Self-register manager user")
+def register_manager(payload: ManagerRegisterRequest, db: Session = Depends(get_db)):
+    if not settings.manager_signup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager self-signup is disabled",
+        )
+
+    if settings.manager_signup_code and payload.signup_code != settings.manager_signup_code:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid signup code",
+        )
+
+    organization = None
+    if payload.organization_id is not None:
+        organization = (
+            db.query(Organization)
+            .filter(Organization.id == payload.organization_id, Organization.is_active.is_(True))
+            .first()
+        )
+    elif payload.organization_slug:
+        organization = (
+            db.query(Organization)
+            .filter(Organization.slug == payload.organization_slug.strip(), Organization.is_active.is_(True))
+            .first()
+        )
+    else:
+        organization = (
+            db.query(Organization)
+            .filter(Organization.is_active.is_(True))
+            .order_by(Organization.id.asc())
+            .first()
+        )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization not found",
+        )
+
+    try:
+        user = register_manager_user(
+            db=db,
+            email=payload.email,
+            password=payload.password,
+            full_name=payload.full_name,
+            organization_id=organization.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    return build_token_response(user)
+
+
 @router.get("/me", response_model=UserMeResponse, summary="Get current admin user")
 def me(
     db: Session = Depends(get_db),
@@ -41,6 +127,40 @@ def me(
 ):
     memberships = get_active_memberships(db, current_user.id)
     property_accesses = get_active_property_accesses(db, current_user.id)
+    owner = is_platform_owner(db, current_user)
+    role_ui = _resolve_role_ui(is_owner=owner, memberships=list(memberships))
+
+    current_organization = None
+    available_properties: list[AvailablePropertyResponse] = []
+    current_property_id: int | None = None
+
+    default_organization_id = get_default_organization_id(db=db, user=current_user)
+    if default_organization_id is not None:
+        organization = (
+            db.query(Organization)
+            .filter(Organization.id == default_organization_id)
+            .first()
+        )
+        if organization is not None:
+            current_organization = CurrentOrganizationResponse(
+                id=organization.id,
+                name=organization.name,
+            )
+            available_property_rows = get_accessible_properties_for_organization(
+                db=db,
+                user=current_user,
+                organization_id=organization.id,
+            )
+            available_properties = [
+                AvailablePropertyResponse(
+                    id=item.id,
+                    name=item.name,
+                    timezone=item.timezone,
+                )
+                for item in available_property_rows
+            ]
+            if available_properties:
+                current_property_id = available_properties[0].id
 
     return UserMeResponse(
         id=current_user.id,
@@ -48,7 +168,11 @@ def me(
         full_name=current_user.full_name,
         is_active=current_user.is_active,
         is_superuser=current_user.is_superuser,
-        is_platform_owner=is_platform_owner(db, current_user),
+        is_platform_owner=owner,
+        role_ui=role_ui,
+        current_organization=current_organization,
+        available_properties=available_properties,
+        current_property_id=current_property_id,
         memberships=[
             MembershipScopeResponse(
                 organization_id=item.organization_id,

@@ -7,7 +7,7 @@ TIME_HHMM_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
 class CallPolicyUpdateRequest(BaseModel):
-    organization_id: int
+    organization_id: int | None = None
     property_id: int
     min_hours_between_calls: int = Field(ge=1, le=720)
     max_calls_7d: int = Field(ge=0, le=14)

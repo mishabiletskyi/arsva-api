@@ -20,13 +20,19 @@ def list_tenant_eligibility(
     db: Session = Depends(get_db),
     current_user: AdminUser = Depends(get_current_user),
 ):
-    tenants = get_tenants(
-        db=db,
-        current_user=current_user,
-        organization_id=organization_id,
-        property_id=property_id,
-        include_archived=include_archived,
-    )
+    try:
+        tenants = get_tenants(
+            db=db,
+            current_user=current_user,
+            organization_id=organization_id,
+            property_id=property_id,
+            include_archived=include_archived,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
     evaluations = [TenantEligibilityResponse(**evaluate_tenant_eligibility(db, tenant)) for tenant in tenants]
     if only_callable:
         evaluations = [item for item in evaluations if item.can_call_now]

@@ -1,0 +1,11 @@
+external_id,first_name,last_name,phone_number,property_name,timezone,rent_due_date,days_late,consent_status,consent_timestamp,consent_source,consent_document_version,opt_out_flag,opt_out_timestamp,eviction_status,is_suppressed,notes
+tenant-1001,Mykhailo,Biletskyi,+380959255849,Default Property,America/New_York,2026-03-01,5,true,2026-03-01T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Primary test tenant
+tenant-1002,John,Doe,+15550001111,Default Property,America/New_York,2026-03-01,4,true,2026-03-01T10:05:00+00:00,lease_clause_v1,v1.0,false,,false,false,Call-ready
+tenant-1003,Anna,Smith,+15550001112,Default Property,America/New_York,2026-03-01,6,true,2026-03-01T10:10:00+00:00,lease_clause_v1,v1.0,false,,false,false,Call-ready
+tenant-1004,Mark,Johnson,+15550001113,Default Property,America/New_York,2026-03-01,3,true,2026-03-01T10:15:00+00:00,lease_clause_v1,v1.0,false,,false,false,Call-ready
+tenant-1005,Sarah,Williams,+15550001114,Default Property,America/New_York,2026-03-01,8,true,2026-03-01T10:20:00+00:00,lease_clause_v1,v1.0,false,,false,false,Call-ready
+tenant-1006,David,Brown,+15550001115,Default Property,America/New_York,2026-03-01,2,true,2026-03-01T10:25:00+00:00,lease_clause_v1,v1.0,false,,false,false,Below default days_late_min
+tenant-1007,Emily,Davis,+15550001116,Default Property,America/New_York,2026-03-01,9,false,,lease_clause_v1,v1.0,false,,false,false,Consent missing
+tenant-1008,Michael,Wilson,+15550001117,Default Property,America/New_York,2026-03-01,7,true,2026-03-01T10:30:00+00:00,lease_clause_v1,v1.0,true,2026-03-05T08:00:00+00:00,false,false,Opted out
+tenant-1009,Olivia,Taylor,+15550001118,Default Property,America/New_York,2026-03-01,10,true,2026-03-01T10:35:00+00:00,lease_clause_v1,v1.0,false,,true,false,Eviction flag set
+tenant-1010,Daniel,Anderson,+15550001119,Default Property,America/New_York,2026-03-01,5,true,2026-03-01T10:40:00+00:00,lease_clause_v1,v1.0,false,,false,true,Suppressed tenant

@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 from app.models.admin_user import AdminUser
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantUpdate
-from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.access_service import (
+    can_access_property,
+    can_manage_property,
+    get_property_in_scope,
+    is_platform_owner,
+    resolve_organization_scope,
+)
 from app.services.property_service import get_property_by_id
 
 
@@ -42,10 +48,28 @@ def get_tenants(
     property_id: int | None = None,
     include_archived: bool = False,
 ) -> list[Tenant]:
+    effective_organization_id = organization_id
+    if current_user is not None:
+        effective_organization_id = resolve_organization_scope(
+            db=db,
+            user=current_user,
+            organization_id=organization_id,
+        )
+
+        if property_id is not None:
+            scoped_property = get_property_in_scope(
+                db=db,
+                user=current_user,
+                property_id=property_id,
+                organization_id=None,
+                require_manage=False,
+            )
+            effective_organization_id = scoped_property.organization_id
+
     query = db.query(Tenant)
 
-    if organization_id is not None:
-        query = query.filter(Tenant.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(Tenant.organization_id == effective_organization_id)
 
     if property_id is not None:
         query = query.filter(Tenant.property_id == property_id)
@@ -133,18 +157,18 @@ def create_tenant(
     if property_obj is None:
         raise ValueError("Property not found")
 
-    if property_obj.organization_id != payload.organization_id:
-        raise ValueError("organization_id does not match the selected property")
+    if current_user is not None:
+        property_obj = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=payload.property_id,
+            organization_id=None,
+            require_manage=True,
+        )
 
-    if current_user is not None and not can_manage_property(
-        db=db,
-        user=current_user,
-        organization_id=payload.organization_id,
-        property_id=payload.property_id,
-    ):
-        raise PermissionError("You do not have access to create tenants in this property")
-
-    tenant = Tenant(**payload.model_dump())
+    tenant_data = payload.model_dump()
+    tenant_data["organization_id"] = property_obj.organization_id
+    tenant = Tenant(**tenant_data)
 
     db.add(tenant)
     db.commit()
@@ -167,6 +191,7 @@ def update_tenant(
         raise PermissionError("You do not have access to update this tenant")
 
     update_data = payload.model_dump(exclude_unset=True)
+    update_data.pop("organization_id", None)
 
     new_external_id = update_data.get("external_id")
     if new_external_id:
@@ -178,28 +203,20 @@ def update_tenant(
         if existing_tenant is not None and existing_tenant.id != tenant.id:
             raise ValueError("Tenant with this external_id already exists")
 
-    if "organization_id" in update_data and "property_id" not in update_data:
-        if update_data["organization_id"] != tenant.organization_id:
-            raise ValueError("organization_id cannot be changed without property_id")
-
     if "property_id" in update_data:
         property_obj = get_property_by_id(db=db, property_id=update_data["property_id"])
         if property_obj is None:
             raise ValueError("Property not found")
 
-        if "organization_id" in update_data:
-            if update_data["organization_id"] != property_obj.organization_id:
-                raise ValueError("organization_id does not match the selected property")
+        if current_user is not None:
+            property_obj = get_property_in_scope(
+                db=db,
+                user=current_user,
+                property_id=property_obj.id,
+                require_manage=True,
+            )
 
         update_data["organization_id"] = property_obj.organization_id
-
-        if current_user is not None and not can_manage_property(
-            db=db,
-            user=current_user,
-            organization_id=property_obj.organization_id,
-            property_id=property_obj.id,
-        ):
-            raise PermissionError("You do not have access to move this tenant to the selected property")
 
     for field, value in update_data.items():
         setattr(tenant, field, value)

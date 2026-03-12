@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change_me_super_secret_key"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 180
+    manager_signup_enabled: bool = True
+    manager_signup_code: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

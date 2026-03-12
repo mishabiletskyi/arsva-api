@@ -6,7 +6,13 @@ from app.models.outbound_call_job import OutboundCallJob
 from app.models.tenant import Tenant
 from app.schemas.outbound_call_job import OutboundCallJobCreate
 from app.services.call_policy_service import build_policy_snapshot, get_effective_call_policy_map
-from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.access_service import (
+    can_access_property,
+    can_manage_property,
+    get_property_in_scope,
+    is_platform_owner,
+    resolve_organization_scope,
+)
 from app.services.compliance_service import evaluate_tenant_eligibility
 from app.services.vapi_service import VapiDispatchError, create_outbound_call
 
@@ -17,10 +23,26 @@ def get_outbound_call_jobs(
     organization_id: int | None = None,
     property_id: int | None = None,
 ) -> list[OutboundCallJob]:
+    effective_organization_id = resolve_organization_scope(
+        db=db,
+        user=current_user,
+        organization_id=organization_id,
+    )
+
+    if property_id is not None:
+        scoped_property = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=property_id,
+            organization_id=None,
+            require_manage=False,
+        )
+        effective_organization_id = scoped_property.organization_id
+
     query = db.query(OutboundCallJob)
 
-    if organization_id is not None:
-        query = query.filter(OutboundCallJob.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(OutboundCallJob.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(OutboundCallJob.property_id == property_id)
 
@@ -81,10 +103,26 @@ def create_outbound_call_job(
     current_user: AdminUser,
 ) -> OutboundCallJob:
     settings = get_settings()
+    effective_organization_id = resolve_organization_scope(
+        db=db,
+        user=current_user,
+        organization_id=None,
+    )
+
+    if payload.property_id is not None:
+        property_obj = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=payload.property_id,
+            organization_id=None,
+            require_manage=True,
+        )
+        effective_organization_id = property_obj.organization_id
+
     query = db.query(Tenant).filter(Tenant.is_archived.is_(False))
 
-    if payload.organization_id is not None:
-        query = query.filter(Tenant.organization_id == payload.organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(Tenant.organization_id == effective_organization_id)
     if payload.property_id is not None:
         query = query.filter(Tenant.property_id == payload.property_id)
     if payload.tenant_ids:
@@ -171,7 +209,7 @@ def create_outbound_call_job(
                 )
 
     job = OutboundCallJob(
-        organization_id=payload.organization_id,
+        organization_id=effective_organization_id,
         property_id=payload.property_id,
         status=(
             "previewed"
@@ -185,7 +223,7 @@ def create_outbound_call_job(
         eligible_count=len(eligible_results),
         blocked_count=len(blocked_results),
         filters={
-            "organization_id": payload.organization_id,
+            "organization_id": effective_organization_id,
             "property_id": payload.property_id,
             "tenant_ids": payload.tenant_ids,
             "assistant_id": assistant_id or None,

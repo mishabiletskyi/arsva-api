@@ -7,9 +7,13 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.admin_user import AdminUser
 from app.models.csv_import import CsvImport
-from app.models.property import Property
 from app.models.tenant import Tenant
-from app.services.access_service import can_access_property, can_manage_property, is_platform_owner
+from app.services.access_service import (
+    can_access_property,
+    get_property_in_scope,
+    is_platform_owner,
+    resolve_organization_scope,
+)
 from app.services.storage_service import (
     StorageServiceError,
     build_import_blob_name,
@@ -86,10 +90,26 @@ def get_csv_imports(
     organization_id: int | None = None,
     property_id: int | None = None,
 ) -> list[CsvImport]:
+    effective_organization_id = resolve_organization_scope(
+        db=db,
+        user=current_user,
+        organization_id=organization_id,
+    )
+
+    if property_id is not None:
+        scoped_property = get_property_in_scope(
+            db=db,
+            user=current_user,
+            property_id=property_id,
+            organization_id=None,
+            require_manage=False,
+        )
+        effective_organization_id = scoped_property.organization_id
+
     query = db.query(CsvImport)
 
-    if organization_id is not None:
-        query = query.filter(CsvImport.organization_id == organization_id)
+    if effective_organization_id is not None:
+        query = query.filter(CsvImport.organization_id == effective_organization_id)
     if property_id is not None:
         query = query.filter(CsvImport.property_id == property_id)
 
@@ -143,33 +163,23 @@ def get_csv_import_by_id(
 def create_csv_import_from_upload(
     db: Session,
     current_user: AdminUser,
-    organization_id: int,
+    organization_id: int | None,
     property_id: int,
     original_file_name: str,
     file_bytes: bytes,
 ) -> CsvImport:
     settings = get_settings()
-    property_obj = (
-        db.query(Property)
-        .filter(Property.id == property_id)
-        .first()
-    )
-    if property_obj is None:
-        raise ValueError("Property not found")
-
-    if property_obj.organization_id != organization_id:
-        raise ValueError("organization_id does not match the selected property")
-
-    if not can_manage_property(
+    property_obj = get_property_in_scope(
         db=db,
         user=current_user,
-        organization_id=organization_id,
+        organization_id=None,
         property_id=property_id,
-    ):
-        raise PermissionError("You do not have access to import tenants into this property")
+        require_manage=True,
+    )
+    effective_organization_id = property_obj.organization_id
 
     stored_file_name = build_import_blob_name(
-        organization_id=organization_id,
+        organization_id=effective_organization_id,
         property_id=property_id,
         original_file_name=original_file_name,
     )
@@ -184,7 +194,7 @@ def create_csv_import_from_upload(
         raise ValueError(f"Failed to store CSV file in Azure Blob: {exc}") from exc
 
     csv_import = CsvImport(
-        organization_id=organization_id,
+        organization_id=effective_organization_id,
         property_id=property_id,
         original_file_name=original_file_name,
         stored_file_name=stored_file_name,
@@ -259,7 +269,7 @@ def create_csv_import_from_upload(
                         raise ValueError("opt_out_timestamp must be ISO datetime")
 
                     tenant = Tenant(
-                        organization_id=organization_id,
+                        organization_id=effective_organization_id,
                         property_id=property_id,
                         external_id=external_id,
                         first_name=first_name,

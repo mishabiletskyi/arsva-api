@@ -25,15 +25,26 @@ def list_call_logs(
     db: Session = Depends(get_db),
     current_user: AdminUser = Depends(get_current_user),
 ):
-    return get_call_logs(
-        db=db,
-        current_user=current_user,
-        skip=skip,
-        limit=limit,
-        organization_id=organization_id,
-        property_id=property_id,
-        tenant_id=tenant_id,
-    )
+    try:
+        return get_call_logs(
+            db=db,
+            current_user=current_user,
+            skip=skip,
+            limit=limit,
+            organization_id=organization_id,
+            property_id=property_id,
+            tenant_id=tenant_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
 
 @router.get("/{call_log_id}", response_model=CallLogResponse, summary="Get call log by ID")

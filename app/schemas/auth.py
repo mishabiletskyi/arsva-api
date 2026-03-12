@@ -6,6 +6,15 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=6)
 
 
+class ManagerRegisterRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=6)
+    full_name: str | None = None
+    organization_id: int | None = None
+    organization_slug: str | None = None
+    signup_code: str | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -21,6 +30,17 @@ class PropertyAccessScopeResponse(BaseModel):
     property_id: int
 
 
+class CurrentOrganizationResponse(BaseModel):
+    id: int
+    name: str
+
+
+class AvailablePropertyResponse(BaseModel):
+    id: int
+    name: str
+    timezone: str
+
+
 class UserMeResponse(BaseModel):
     id: int
     email: str
@@ -28,5 +48,9 @@ class UserMeResponse(BaseModel):
     is_active: bool
     is_superuser: bool
     is_platform_owner: bool
+    role_ui: str
+    current_organization: CurrentOrganizationResponse | None = None
+    available_properties: list[AvailablePropertyResponse]
+    current_property_id: int | None = None
     memberships: list[MembershipScopeResponse]
     property_accesses: list[PropertyAccessScopeResponse]
