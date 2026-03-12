@@ -124,3 +124,20 @@ def test_register_manager_without_signup_code_is_forbidden(client, seeded_data):
         },
     )
     assert response.status_code == 403
+
+
+def test_register_manager_accepts_case_insensitive_slug(client, db_session, seeded_data):
+    _enable_manager_signup_for_tests()
+    organization = seeded_data["organizations"]["org_1"]
+
+    response = client.post(
+        "/api/v1/auth/register-manager",
+        json={
+            "email": "slug.case@example.com",
+            "password": "StrongPass123",
+            "organization_slug": organization.slug.upper(),
+            "signup_code": "test-signup-code",
+        },
+    )
+
+    assert response.status_code == 200

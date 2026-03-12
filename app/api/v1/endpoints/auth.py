@@ -143,7 +143,7 @@ def register_manager(payload: ManagerRegisterRequest, db: Session = Depends(get_
     elif payload.organization_slug:
         organization = (
             db.query(Organization)
-            .filter(Organization.slug == payload.organization_slug.strip(), Organization.is_active.is_(True))
+            .filter(Organization.slug == payload.organization_slug.strip().lower(), Organization.is_active.is_(True))
             .first()
         )
         if organization is None:
