@@ -5,13 +5,6 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 
 settings = get_settings()
-hardcoded_cors_origins = [
-    "https://black-hill-098cfbd10.6.azurestaticapps.net",
-]
-
-allowed_cors_origins = list(
-    dict.fromkeys([*settings.backend_cors_origins, *hardcoded_cors_origins])
-)
 
 app = FastAPI(
     title=settings.app_name,
@@ -20,7 +13,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_cors_origins,
+    allow_origins=[],
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
