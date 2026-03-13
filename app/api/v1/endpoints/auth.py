@@ -49,7 +49,7 @@ def _resolve_role_ui(
     if ROLE_VIEWER in roles:
         return "viewer"
 
-    return "manager"
+    return "manager" 
 
 
 def _slugify_organization_name(name: str) -> str:
