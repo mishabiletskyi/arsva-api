@@ -39,6 +39,12 @@ class CsvImport(Base):
         ForeignKey("admin_users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    deleted_by_admin_id = Column(
+        Integer,
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -50,4 +56,8 @@ class CsvImport(Base):
 
     organization = relationship("Organization", back_populates="csv_imports")
     property = relationship("Property", back_populates="csv_imports")
-    uploaded_by = relationship("AdminUser", back_populates="csv_imports")
+    uploaded_by = relationship(
+        "AdminUser",
+        back_populates="csv_imports",
+        foreign_keys=[uploaded_by_admin_id],
+    )

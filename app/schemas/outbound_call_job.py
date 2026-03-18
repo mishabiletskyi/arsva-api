@@ -26,6 +26,10 @@ class OutboundCallJobResponse(BaseModel):
     total_candidates: int
     eligible_count: int
     blocked_count: int
+    requested_count: int
+    started_count: int
+    failed_count: int
+    note: str | None = None
     filters: dict[str, Any] | None = None
     policy_snapshot: dict[str, Any] | None = None
     result_summary: dict[str, Any] | None = None

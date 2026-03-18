@@ -23,7 +23,11 @@ class AdminUser(Base):
         onupdate=func.now(),
     )
 
-    csv_imports = relationship("CsvImport", back_populates="uploaded_by")
+    csv_imports = relationship(
+        "CsvImport",
+        back_populates="uploaded_by",
+        foreign_keys="CsvImport.uploaded_by_admin_id",
+    )
     memberships = relationship(
         "AdminUserMembership",
         back_populates="admin_user",

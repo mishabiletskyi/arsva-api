@@ -1,3 +1,5 @@
+import builtins
+
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -63,3 +65,28 @@ class OutboundCallJob(Base):
     organization = relationship("Organization")
     property = relationship("Property")
     requested_by = relationship("AdminUser")
+
+    @builtins.property
+    def requested_count(self) -> int:
+        return self.total_candidates
+
+    @builtins.property
+    def started_count(self) -> int:
+        if not self.result_summary:
+            return 0
+        value = self.result_summary.get("started_count")
+        return int(value) if isinstance(value, int) else 0
+
+    @builtins.property
+    def failed_count(self) -> int:
+        if not self.result_summary:
+            return 0
+        value = self.result_summary.get("failed_count")
+        return int(value) if isinstance(value, int) else 0
+
+    @builtins.property
+    def note(self) -> str | None:
+        if not self.result_summary:
+            return None
+        value = self.result_summary.get("note")
+        return value if isinstance(value, str) else None

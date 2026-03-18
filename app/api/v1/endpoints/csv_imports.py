@@ -9,6 +9,7 @@ from app.services.csv_import_service import (
     create_csv_import_from_upload,
     get_csv_import_by_id,
     get_csv_imports,
+    soft_delete_csv_import,
 )
 
 router = APIRouter(prefix="/csv-imports")
@@ -103,4 +104,29 @@ async def upload_csv_import(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        )
+
+
+@router.delete("/{csv_import_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Soft delete CSV import")
+def delete_csv_import(
+    csv_import_id: int,
+    db: Session = Depends(get_db),
+    current_user: AdminUser = Depends(get_current_user),
+):
+    try:
+        csv_import = soft_delete_csv_import(
+            db=db,
+            csv_import_id=csv_import_id,
+            current_user=current_user,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+
+    if csv_import is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CSV import not found",
         )

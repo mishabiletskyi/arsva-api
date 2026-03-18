@@ -248,7 +248,7 @@ def export_csv_imports_csv(
         property_id=property_id,
     )
     start, end = _normalize_date_range(date_from, date_to)
-    query = db.query(CsvImport)
+    query = db.query(CsvImport).filter(CsvImport.deleted_at.is_(None))
     if effective_organization_id is not None:
         query = query.filter(CsvImport.organization_id == effective_organization_id)
     if property_id is not None:

@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -106,7 +106,7 @@ def get_csv_imports(
         )
         effective_organization_id = scoped_property.organization_id
 
-    query = db.query(CsvImport)
+    query = db.query(CsvImport).filter(CsvImport.deleted_at.is_(None))
 
     if effective_organization_id is not None:
         query = query.filter(CsvImport.organization_id == effective_organization_id)
@@ -136,12 +136,13 @@ def get_csv_import_by_id(
     db: Session,
     csv_import_id: int,
     current_user: AdminUser,
+    include_deleted: bool = False,
 ) -> CsvImport | None:
-    csv_import = (
-        db.query(CsvImport)
-        .filter(CsvImport.id == csv_import_id)
-        .first()
-    )
+    query = db.query(CsvImport).filter(CsvImport.id == csv_import_id)
+    if not include_deleted:
+        query = query.filter(CsvImport.deleted_at.is_(None))
+
+    csv_import = query.first()
 
     if csv_import is None:
         return None
@@ -157,6 +158,38 @@ def get_csv_import_by_id(
     ):
         return None
 
+    return csv_import
+
+
+def soft_delete_csv_import(
+    db: Session,
+    csv_import_id: int,
+    current_user: AdminUser,
+) -> CsvImport | None:
+    csv_import = get_csv_import_by_id(
+        db=db,
+        csv_import_id=csv_import_id,
+        current_user=current_user,
+        include_deleted=False,
+    )
+    if csv_import is None:
+        return None
+
+    scoped_property = get_property_in_scope(
+        db=db,
+        user=current_user,
+        property_id=csv_import.property_id,
+        organization_id=csv_import.organization_id,
+        require_manage=True,
+    )
+    if scoped_property.id != csv_import.property_id:
+        raise PermissionError("You do not have access to delete this CSV import")
+
+    csv_import.deleted_at = datetime.now(timezone.utc)
+    csv_import.deleted_by_admin_id = current_user.id
+    db.add(csv_import)
+    db.commit()
+    db.refresh(csv_import)
     return csv_import
 
 

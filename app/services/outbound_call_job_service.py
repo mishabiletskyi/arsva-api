@@ -17,6 +17,26 @@ from app.services.compliance_service import evaluate_tenant_eligibility
 from app.services.vapi_service import VapiDispatchError, create_outbound_call
 
 
+def _build_job_note(
+    *,
+    dry_run: bool,
+    started_count: int,
+    failed_count: int,
+    blocked_count: int,
+) -> str:
+    if dry_run:
+        return "Preview only; no outbound calls sent."
+    if started_count > 0:
+        if failed_count > 0:
+            return "Outbound calls started, but some requests failed."
+        return "Outbound calls started."
+    if failed_count > 0:
+        return "Outbound call dispatch failed."
+    if blocked_count > 0:
+        return "No calls started because selected tenants were blocked by policy."
+    return "No calls were started."
+
+
 def get_outbound_call_jobs(
     db: Session,
     current_user: AdminUser,
@@ -208,20 +228,31 @@ def create_outbound_call_job(
                     }
                 )
 
+    requested_count = len(eligibility_results)
+    started_count = len(dispatched_calls)
+    failed_count = len(dispatch_errors)
+    blocked_count = len(blocked_results)
+    note = _build_job_note(
+        dry_run=payload.dry_run,
+        started_count=started_count,
+        failed_count=failed_count,
+        blocked_count=blocked_count,
+    )
+
     job = OutboundCallJob(
         organization_id=effective_organization_id,
         property_id=payload.property_id,
         status=(
             "previewed"
             if payload.dry_run
-            else ("failed" if dispatch_errors and not dispatched_calls else "queued")
+            else ("queued" if started_count > 0 else "failed")
         ),
         trigger_mode=payload.trigger_mode.strip().lower(),
         dry_run=payload.dry_run,
         requested_by_admin_id=current_user.id,
-        total_candidates=len(eligibility_results),
+        total_candidates=requested_count,
         eligible_count=len(eligible_results),
-        blocked_count=len(blocked_results),
+        blocked_count=blocked_count,
         filters={
             "organization_id": effective_organization_id,
             "property_id": payload.property_id,
@@ -235,24 +266,10 @@ def create_outbound_call_job(
             [policy_map[scope] for scope in sorted(scopes, key=lambda item: (item[0], item[1]))]
         ),
         result_summary={
-            "eligible_tenant_ids": [item["tenant_id"] for item in eligible_results],
-            "blocked": [
-                {
-                    "tenant_id": item["tenant_id"],
-                    "blocked_reasons": item["blocked_reasons"],
-                }
-                for item in blocked_results[:100]
-            ],
-            "dispatch_ready": not payload.dry_run,
-            "dispatch_note": (
-                "Preview only; no outbound calls sent."
-                if payload.dry_run
-                else (
-                    "Outbound calls sent to VAPI."
-                    if dispatched_calls
-                    else "VAPI dispatch failed."
-                )
-            ),
+            "requested_count": requested_count,
+            "started_count": started_count,
+            "failed_count": failed_count,
+            "note": note,
             "dispatched_calls": dispatched_calls,
             "dispatch_errors": dispatch_errors,
         },
