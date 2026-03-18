@@ -82,6 +82,40 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized)
 
 
+def _build_csv_reader(decoded_content: str) -> csv.DictReader:
+    sample = decoded_content[:4096]
+    delimiter = ","
+
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        delimiter = dialect.delimiter
+    except csv.Error:
+        header_line = decoded_content.splitlines()[0] if decoded_content.splitlines() else ""
+        if ";" in header_line and "," not in header_line:
+            delimiter = ";"
+        elif "\t" in header_line and "," not in header_line and ";" not in header_line:
+            delimiter = "\t"
+
+    return csv.DictReader(io.StringIO(decoded_content), delimiter=delimiter)
+
+
+def _validate_csv_headers(reader: csv.DictReader) -> None:
+    fieldnames = reader.fieldnames or []
+    normalized_headers = {header.strip() for header in fieldnames if header}
+    required_headers = {"first_name", "phone_number"}
+
+    if not normalized_headers:
+        raise ValueError("CSV header row is missing")
+
+    missing_headers = sorted(required_headers - normalized_headers)
+    if missing_headers:
+        raise ValueError(
+            "CSV is missing required columns: "
+            + ", ".join(missing_headers)
+            + ". Expected comma-, semicolon-, or tab-delimited CSV with a header row."
+        )
+
+
 def get_csv_imports(
     db: Session,
     current_user: AdminUser,
@@ -244,7 +278,8 @@ def create_csv_import_from_upload(
     db.refresh(csv_import)
 
     decoded_content = file_bytes.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(decoded_content))
+    reader = _build_csv_reader(decoded_content)
+    _validate_csv_headers(reader)
 
     total_rows = 0
     imported_rows = 0

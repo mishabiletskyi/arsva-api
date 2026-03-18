@@ -1,0 +1,6 @@
+external_id,first_name,last_name,phone_number,property_name,timezone,rent_due_date,days_late,consent_status,consent_timestamp,consent_source,consent_document_version,opt_out_flag,opt_out_timestamp,eviction_status,is_suppressed,notes
+tenant-3001,Mykhailo,Biletskyi,+380959255849,Default Property,America/New_York,2026-03-01,5,true,2026-03-01T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Primary demo tenant
+tenant-3002,John,Doe,+15550001111,Default Property,America/New_York,2026-03-02,4,true,2026-03-02T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Demo tenant 2
+tenant-3003,Anna,Smith,+15550001112,Default Property,America/New_York,2026-03-03,6,true,2026-03-03T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Demo tenant 3
+tenant-3004,Mark,Johnson,+15550001113,Default Property,America/New_York,2026-03-04,7,true,2026-03-04T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Demo tenant 4
+tenant-3005,Sarah,Williams,+15550001114,Default Property,America/New_York,2026-03-05,8,true,2026-03-05T10:00:00+00:00,lease_clause_v1,v1.0,false,,false,false,Demo tenant 5
