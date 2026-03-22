@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from app.core.config import get_settings
 from sqlalchemy.orm import Session
@@ -39,6 +40,35 @@ def _coerce_duration_seconds(value) -> int | None:
 
     if isinstance(value, str):
         return int(float(value))
+
+    return None
+
+
+def _parse_datetime_value(value) -> datetime | None:
+    if value in {None, ""}:
+        return None
+
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        return datetime.fromisoformat(normalized)
+
+    return None
+
+
+def _coerce_decimal(value) -> Decimal | None:
+    if value in {None, ""}:
+        return None
+
+    if isinstance(value, Decimal):
+        return value
+
+    if isinstance(value, (int, float, str)):
+        return Decimal(str(value))
 
     return None
 
@@ -268,8 +298,14 @@ def _apply_call_log_values(
     tenant: Tenant,
     *,
     vapi_call_id: str | None,
+    call_status: str | None,
     call_outcome: str | None,
     script_version: str | None,
+    call_summary: str | None,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    ended_reason: str | None,
+    provider_cost: Decimal | None,
     transcript: str | None,
     recording_url: str | None,
     opt_out_detected: bool,
@@ -288,8 +324,14 @@ def _apply_call_log_values(
     call_log.property_id = tenant.property_id
     call_log.tenant_id = tenant.id
     call_log.vapi_call_id = vapi_call_id
+    call_log.call_status = call_status
     call_log.call_outcome = call_outcome
     call_log.script_version = script_version
+    call_log.call_summary = call_summary
+    call_log.started_at = started_at
+    call_log.ended_at = ended_at
+    call_log.ended_reason = ended_reason
+    call_log.provider_cost = provider_cost
     call_log.transcript = transcript
     call_log.recording_url = recording_url
     call_log.opt_out_detected = opt_out_detected
@@ -415,8 +457,14 @@ def create_call_log(
         call_log,
         tenant,
         vapi_call_id=payload.vapi_call_id,
+        call_status=payload.call_status,
         call_outcome=payload.call_outcome,
         script_version=payload.script_version or settings.current_script_version,
+        call_summary=payload.call_summary,
+        started_at=payload.started_at,
+        ended_at=payload.ended_at,
+        ended_reason=payload.ended_reason,
+        provider_cost=_coerce_decimal(payload.provider_cost),
         transcript=payload.transcript,
         recording_url=payload.recording_url,
         opt_out_detected=payload.opt_out_detected,
@@ -469,6 +517,49 @@ def update_call_log(
     return call_log
 
 
+def create_or_get_call_log_for_dispatch(
+    db: Session,
+    *,
+    tenant: Tenant,
+    vapi_call_id: str,
+    script_version: str | None,
+    call_status: str | None,
+    raw_payload: str | None,
+) -> CallLog:
+    call_log = (
+        db.query(CallLog)
+        .filter(CallLog.vapi_call_id == vapi_call_id)
+        .first()
+    )
+    if call_log is None:
+        call_log = CallLog()
+
+    _apply_call_log_values(
+        call_log,
+        tenant,
+        vapi_call_id=vapi_call_id,
+        call_status=call_status,
+        call_outcome=call_log.call_outcome,
+        script_version=script_version,
+        call_summary=call_log.call_summary,
+        started_at=call_log.started_at,
+        ended_at=call_log.ended_at,
+        ended_reason=call_log.ended_reason,
+        provider_cost=call_log.provider_cost,
+        transcript=call_log.transcript,
+        recording_url=call_log.recording_url,
+        opt_out_detected=call_log.opt_out_detected,
+        expected_payment_date=call_log.expected_payment_date,
+        duration_seconds=call_log.duration_seconds,
+        raw_payload=raw_payload or call_log.raw_payload or "",
+    )
+
+    db.add(call_log)
+    db.commit()
+    db.refresh(call_log)
+    return call_log
+
+
 def create_or_update_call_log_from_vapi_payload(
     db: Session,
     payload: dict,
@@ -479,8 +570,16 @@ def create_or_update_call_log_from_vapi_payload(
         raise ValueError("Unable to map VAPI callback to a tenant")
 
     call_data = payload.get("call") if isinstance(payload.get("call"), dict) else {}
-    artifact = payload.get("artifact") if isinstance(payload.get("artifact"), dict) else {}
-    analysis = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
+    artifact = (
+        call_data.get("artifact")
+        if isinstance(call_data.get("artifact"), dict)
+        else (payload.get("artifact") if isinstance(payload.get("artifact"), dict) else {})
+    )
+    analysis = (
+        call_data.get("analysis")
+        if isinstance(call_data.get("analysis"), dict)
+        else (payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {})
+    )
     structured_data = (
         analysis.get("structuredData")
         if isinstance(analysis.get("structuredData"), dict)
@@ -526,6 +625,7 @@ def create_or_update_call_log_from_vapi_payload(
     opt_out_detected = bool(
         _get_first_value(
             payload.get("opt_out_detected"),
+            structured_data.get("opt_out_detected"),
             analysis.get("opt_out_detected"),
             analysis.get("optOutDetected"),
         )
@@ -542,9 +642,9 @@ def create_or_update_call_log_from_vapi_payload(
     call_outcome = _get_first_value(
         structured_data.get("call_outcome"),
         payload.get("call_outcome"),
-        payload.get("status"),
-        analysis.get("summary"),
         analysis.get("outcome"),
+        analysis.get("summaryOutcome"),
+        payload.get("status"),
         call_data.get("status"),
     )
 
@@ -552,11 +652,41 @@ def create_or_update_call_log_from_vapi_payload(
         call_log,
         tenant,
         vapi_call_id=str(vapi_call_id),
+        call_status=_get_first_value(
+            call_data.get("status"),
+            payload.get("status"),
+        ),
         call_outcome=call_outcome,
         script_version=_get_first_value(
             structured_data.get("script_version"),
             payload.get("script_version"),
             settings.current_script_version,
+        ),
+        call_summary=_get_first_value(
+            analysis.get("summary"),
+            payload.get("summary"),
+        ),
+        started_at=_parse_datetime_value(
+            _get_first_value(
+                call_data.get("startedAt"),
+                payload.get("started_at"),
+            )
+        ),
+        ended_at=_parse_datetime_value(
+            _get_first_value(
+                call_data.get("endedAt"),
+                payload.get("ended_at"),
+            )
+        ),
+        ended_reason=_get_first_value(
+            call_data.get("endedReason"),
+            payload.get("ended_reason"),
+        ),
+        provider_cost=_coerce_decimal(
+            _get_first_value(
+                call_data.get("cost"),
+                payload.get("cost"),
+            )
         ),
         transcript=_get_first_value(
             payload.get("transcript"),

@@ -1,3 +1,5 @@
+import json
+
 from app.core.config import get_settings
 from sqlalchemy.orm import Session
 
@@ -5,6 +7,7 @@ from app.models.admin_user import AdminUser
 from app.models.outbound_call_job import OutboundCallJob
 from app.models.tenant import Tenant
 from app.schemas.outbound_call_job import OutboundCallJobCreate
+from app.services.call_log_service import create_or_get_call_log_for_dispatch
 from app.services.call_policy_service import build_policy_snapshot, get_effective_call_policy_map
 from app.services.access_service import (
     can_access_property,
@@ -212,6 +215,16 @@ def create_outbound_call_job(
                     assistant_id=assistant_id,
                     phone_number_id=phone_number_id,
                 )
+                vapi_call_id = vapi_response.get("id")
+                if isinstance(vapi_call_id, str) and vapi_call_id:
+                    create_or_get_call_log_for_dispatch(
+                        db=db,
+                        tenant=tenant,
+                        vapi_call_id=vapi_call_id,
+                        script_version=settings.current_script_version,
+                        call_status=str(vapi_response.get("status") or "queued"),
+                        raw_payload=json.dumps(vapi_response, ensure_ascii=False),
+                    )
                 dispatched_calls.append(
                     {
                         "tenant_id": tenant_id,

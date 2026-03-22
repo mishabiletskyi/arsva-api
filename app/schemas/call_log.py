@@ -6,8 +6,14 @@ from pydantic import BaseModel, ConfigDict
 class CallLogBase(BaseModel):
     tenant_id: int
     vapi_call_id: str | None = None
+    call_status: str | None = None
     call_outcome: str | None = None
     script_version: str | None = None
+    call_summary: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    ended_reason: str | None = None
+    provider_cost: float | None = None
     transcript: str | None = None
     recording_url: str | None = None
     opt_out_detected: bool = False
@@ -21,8 +27,14 @@ class CallLogCreate(CallLogBase):
 
 
 class CallLogUpdate(BaseModel):
+    call_status: str | None = None
     call_outcome: str | None = None
     script_version: str | None = None
+    call_summary: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    ended_reason: str | None = None
+    provider_cost: float | None = None
     transcript: str | None = None
     recording_url: str | None = None
     opt_out_detected: bool | None = None
@@ -41,5 +53,6 @@ class CallLogResponse(CallLogBase):
     sms_error_message: str | None = None
     sms_sent_at: datetime | None = None
     created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

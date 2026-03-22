@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -29,8 +29,14 @@ class CallLog(Base):
     )
 
     vapi_call_id = Column(String(255), nullable=True, index=True)
+    call_status = Column(String(100), nullable=True, index=True)
     call_outcome = Column(String(100), nullable=True, index=True)
     script_version = Column(String(100), nullable=True)
+    call_summary = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    ended_reason = Column(String(255), nullable=True)
+    provider_cost = Column(Numeric(10, 4), nullable=True)
 
     transcript = Column(Text, nullable=True)
     recording_url = Column(Text, nullable=True)
@@ -47,6 +53,12 @@ class CallLog(Base):
     sms_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     organization = relationship("Organization", back_populates="call_logs")
     property = relationship("Property", back_populates="call_logs")
