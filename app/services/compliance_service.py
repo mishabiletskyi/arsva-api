@@ -53,6 +53,10 @@ def evaluate_tenant_eligibility(
 
     blocked_reasons: list[str] = []
 
+    paid_or_current = tenant.days_late <= 0
+    if paid_or_current:
+        blocked_reasons.append("paid_or_current")
+
     consent_required = not tenant.consent_status
     if consent_required:
         blocked_reasons.append("consent_required")
@@ -154,6 +158,7 @@ def evaluate_tenant_eligibility(
         "state_restriction": state_restriction,
         "call_frequency_limited": call_frequency_limited,
         "delinquency_ineligible": delinquency_ineligible,
+        "paid_or_current": paid_or_current,
         "opted_out": opted_out,
         "eviction_blocked": eviction_blocked,
         "archived": archived,

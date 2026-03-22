@@ -20,6 +20,21 @@ from app.services.compliance_service import evaluate_tenant_eligibility
 from app.services.vapi_service import VapiDispatchError, create_outbound_call
 
 
+def _resolve_final_job_status(
+    *,
+    dry_run: bool,
+    started_count: int,
+    failed_count: int,
+) -> str:
+    if dry_run:
+        return "completed"
+    if started_count > 0:
+        return "completed"
+    if failed_count > 0:
+        return "failed"
+    return "completed"
+
+
 def _build_job_note(
     *,
     dry_run: bool,
@@ -197,69 +212,13 @@ def create_outbound_call_job(
         if not phone_number_id:
             raise ValueError("phone_number_id is required when dry_run is false")
 
-    dispatched_calls: list[dict] = []
-    dispatch_errors: list[dict] = []
-
-    if not payload.dry_run:
-        eligible_tenants_by_id = {
-            item["tenant_id"]: next(
-                tenant for tenant in manageable_tenants if tenant.id == item["tenant_id"]
-            )
-            for item in eligible_results
-        }
-
-        for tenant_id, tenant in eligible_tenants_by_id.items():
-            try:
-                vapi_response = create_outbound_call(
-                    tenant=tenant,
-                    assistant_id=assistant_id,
-                    phone_number_id=phone_number_id,
-                )
-                vapi_call_id = vapi_response.get("id")
-                if isinstance(vapi_call_id, str) and vapi_call_id:
-                    create_or_get_call_log_for_dispatch(
-                        db=db,
-                        tenant=tenant,
-                        vapi_call_id=vapi_call_id,
-                        script_version=settings.current_script_version,
-                        call_status=str(vapi_response.get("status") or "queued"),
-                        raw_payload=json.dumps(vapi_response, ensure_ascii=False),
-                    )
-                dispatched_calls.append(
-                    {
-                        "tenant_id": tenant_id,
-                        "phone_number": tenant.phone_number,
-                        "vapi_response": vapi_response,
-                    }
-                )
-            except VapiDispatchError as exc:
-                dispatch_errors.append(
-                    {
-                        "tenant_id": tenant_id,
-                        "phone_number": tenant.phone_number,
-                        "error": str(exc),
-                    }
-                )
-
     requested_count = len(eligibility_results)
-    started_count = len(dispatched_calls)
-    failed_count = len(dispatch_errors)
     blocked_count = len(blocked_results)
-    note = _build_job_note(
-        dry_run=payload.dry_run,
-        started_count=started_count,
-        failed_count=failed_count,
-        blocked_count=blocked_count,
-    )
 
     job = OutboundCallJob(
         organization_id=effective_organization_id,
         property_id=payload.property_id,
-        status=(
-            "previewed"
-            if payload.dry_run
-            else ("queued" if started_count > 0 else "failed")
-        ),
+        status="queued",
         trigger_mode=payload.trigger_mode.strip().lower(),
         dry_run=payload.dry_run,
         requested_by_admin_id=current_user.id,
@@ -280,14 +239,131 @@ def create_outbound_call_job(
         ),
         result_summary={
             "requested_count": requested_count,
-            "started_count": started_count,
-            "failed_count": failed_count,
-            "note": note,
-            "dispatched_calls": dispatched_calls,
-            "dispatch_errors": dispatch_errors,
+            "started_count": 0,
+            "failed_count": 0,
+            "note": "Job queued for outbound processing." if not payload.dry_run else "Preview job queued.",
+            "dispatched_calls": [],
+            "dispatch_errors": [],
         },
     )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
 
+    dispatched_calls: list[dict] = []
+    dispatch_errors: list[dict] = []
+    refreshed_blocked_results = list(blocked_results)
+
+    try:
+        if payload.dry_run:
+            job.status = "completed"
+        else:
+            job.status = "processing"
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+
+            eligible_tenant_ids = [item["tenant_id"] for item in eligible_results]
+
+            for tenant_id in eligible_tenant_ids:
+                tenant = (
+                    db.query(Tenant)
+                    .filter(Tenant.id == tenant_id)
+                    .first()
+                )
+                if tenant is None:
+                    refreshed_blocked_results.append(
+                        {
+                            "tenant_id": tenant_id,
+                            "blocked_reasons": ["tenant_missing"],
+                        }
+                    )
+                    continue
+
+                refreshed_eligibility = evaluate_tenant_eligibility(
+                    db=db,
+                    tenant=tenant,
+                    policy=policy_map[(tenant.organization_id, tenant.property_id)],
+                )
+                if not refreshed_eligibility["can_call_now"]:
+                    refreshed_blocked_results.append(
+                        {
+                            "tenant_id": tenant.id,
+                            "blocked_reasons": refreshed_eligibility["blocked_reasons"],
+                        }
+                    )
+                    continue
+
+                try:
+                    vapi_response = create_outbound_call(
+                        tenant=tenant,
+                        assistant_id=assistant_id,
+                        phone_number_id=phone_number_id,
+                    )
+                    vapi_call_id = vapi_response.get("id")
+                    if isinstance(vapi_call_id, str) and vapi_call_id:
+                        create_or_get_call_log_for_dispatch(
+                            db=db,
+                            tenant=tenant,
+                            vapi_call_id=vapi_call_id,
+                            script_version=settings.current_script_version,
+                            call_status=str(vapi_response.get("status") or "queued"),
+                            raw_payload=json.dumps(vapi_response, ensure_ascii=False),
+                        )
+                    dispatched_calls.append(
+                        {
+                            "tenant_id": tenant.id,
+                            "phone_number": tenant.phone_number,
+                            "vapi_response": vapi_response,
+                        }
+                    )
+                except VapiDispatchError as exc:
+                    dispatch_errors.append(
+                        {
+                            "tenant_id": tenant.id,
+                            "phone_number": tenant.phone_number,
+                            "error": str(exc),
+                        }
+                    )
+    except Exception:
+        job.status = "failed"
+        job.result_summary = {
+            "requested_count": requested_count,
+            "started_count": len(dispatched_calls),
+            "failed_count": max(1, len(dispatch_errors)),
+            "note": "Outbound call job failed during processing.",
+            "dispatched_calls": dispatched_calls,
+            "dispatch_errors": dispatch_errors,
+        }
+        db.add(job)
+        db.commit()
+        raise
+
+    started_count = len(dispatched_calls)
+    failed_count = len(dispatch_errors)
+    blocked_count = len(refreshed_blocked_results)
+    note = _build_job_note(
+        dry_run=payload.dry_run,
+        started_count=started_count,
+        failed_count=failed_count,
+        blocked_count=blocked_count,
+    )
+
+    job.eligible_count = started_count
+    job.blocked_count = blocked_count
+    job.status = _resolve_final_job_status(
+        dry_run=payload.dry_run,
+        started_count=started_count,
+        failed_count=failed_count,
+    )
+    job.result_summary = {
+        "requested_count": requested_count,
+        "started_count": started_count,
+        "failed_count": failed_count,
+        "note": note,
+        "dispatched_calls": dispatched_calls,
+        "dispatch_errors": dispatch_errors,
+    }
     db.add(job)
     db.commit()
     db.refresh(job)
