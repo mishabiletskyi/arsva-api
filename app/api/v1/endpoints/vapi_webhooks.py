@@ -30,10 +30,20 @@ def process_vapi_call_webhook(
 
     db: Session = SessionLocal()
     try:
+        normalized_payload = payload
+        message = payload.get("message")
+        if isinstance(message, dict):
+            # Vapi server webhooks are commonly wrapped as {"message": {...}}.
+            # Flatten the inner message so the call log service can consume both formats.
+            normalized_payload = {
+                **payload,
+                **message,
+            }
+
         try:
             return create_or_update_call_log_from_vapi_payload(
                 db=db,
-                payload=payload,
+                payload=normalized_payload,
             )
         except ValueError as exc:
             raise HTTPException(
